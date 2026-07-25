@@ -7,7 +7,7 @@ import diffrax
 import jax
 import jax.numpy as jnp
 import optimistix as optx
-from diffrax import AbstractSolver, ConstantStepSize
+from diffrax import AbstractAdaptiveStepSizeController, AbstractSolver, ConstantStepSize
 from jax.typing import ArrayLike
 
 from circulax.solvers.circuit_diffeq import circuit_diffeqsolve
@@ -37,6 +37,7 @@ from circulax.solvers.assembly import (
     assemble_residual_only_real,
     assemble_system_complex,
     assemble_system_real,
+    min_active_tau,
 )
 from circulax.solvers.linear import (
     DAMPING_EPS,
@@ -1181,6 +1182,14 @@ def setup_transient(
                 Defaults to a zero-value ODETerm.
             stepsize_controller (diffrax.AbstractStepSizeController, optional):
                 The step size controller. Defaults to `ConstantStepSize()`.
+                For circuits with delayed components, an adaptive controller
+                (e.g. `PIDController`) is automatically clamped so the
+                proposed step never exceeds the smallest active delay `tau`;
+                `ConstantStepSize` is left unclamped (an explicit
+                `dt0 > tau` still raises). Adaptive+delay circuits may need
+                a larger `max_steps` budget than constant-step ones, sized
+                against `(t1 - t0) / tau_min` as a floor, since the clamp
+                can force more steps than accuracy alone would require.
             **kwargs: Additional keyword arguments to pass directly to
                 `diffrax.diffeqsolve`.
 
@@ -1197,9 +1206,12 @@ def setup_transient(
 
     # Fixed time-delay support: gate the delay-history buffer behind whether
     # any group actually has a delayed component, so undelayed circuits pay
-    # no cost. v1 requires ConstantStepSize (see circulax GitHub issue #2 —
-    # adaptive step size + delay is a documented follow-up, not implemented
-    # here).
+    # no cost. Adaptive step-size controllers are supported (circulax GitHub
+    # issue #2, follow-up): the proposed step is proactively clamped to the
+    # smallest active tau (see `min_active_tau`/`min_tau` below) so
+    # assembly.py's `tau >= dt` guard stays a pure safety net rather than
+    # something adaptive stepping can trip mid-run. `ConstantStepSize`
+    # behavior is unchanged -- an explicit `dt0 > tau` still raises.
     has_delay = any(getattr(g, "has_delay", False) for g in groups.values())
 
     if transient_solver is None:
@@ -1238,13 +1250,12 @@ def setup_transient(
         stepsize_controller = kwargs.pop("stepsize_controller", ConstantStepSize())
         checkpoints = kwargs.pop("checkpoints", None)
 
-        if has_delay and not isinstance(stepsize_controller, ConstantStepSize):
-            msg = (
-                "Circuits with delayed components (see circulax GitHub issue #2) "
-                "currently require ConstantStepSize; adaptive step size is a "
-                "follow-up, not yet implemented."
-            )
-            raise ValueError(msg)
+        # Derive min_tau from the per-call component groups (args[0]), not the
+        # `groups` closed over above -- callers (e.g. gradient checks) may
+        # override `args` with perturbed params, and min_tau must track
+        # whatever is actually being simulated.
+        is_adaptive = isinstance(stepsize_controller, AbstractAdaptiveStepSizeController)
+        min_tau = min_active_tau(args[0]) if (has_delay and is_adaptive) else None
 
         sol = circuit_diffeqsolve(
             terms=term,
@@ -1260,6 +1271,7 @@ def setup_transient(
             stepsize_controller=stepsize_controller,
             checkpoints=checkpoints,
             record_history=has_delay,
+            min_tau=min_tau,
         )
 
         return sol

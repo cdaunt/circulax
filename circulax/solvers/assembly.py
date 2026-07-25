@@ -256,6 +256,23 @@ def _group_tau(group, params, dt: float) -> Array:
     return eqxi.error_if(tau, tau < dt, msg)
 
 
+def min_active_tau(groups) -> Array | None:
+    """Smallest per-instance delay across all delay-having groups, or ``None`` if none.
+
+    Unlike :func:`_group_tau` (recomputed every Newton residual eval, since it
+    also carries the ``tau < dt`` runtime guard keyed to the *current* trial
+    step), this is meant to be computed once per solve -- group params are
+    fixed for the whole transient run. Used by ``setup_transient`` to
+    proactively clamp the adaptive step size (see
+    ``circulax.solvers.circuit_diffeq``) so that guard becomes a pure safety
+    net instead of something adaptive stepping can trip by surprise.
+    """
+    taus = [jnp.min(jax.vmap(g.tau_func)(g.params)) for g in groups.values() if getattr(g, "has_delay", False)]
+    if not taus:
+        return None
+    return jnp.min(jnp.stack(taus))
+
+
 def _real_hist_locs(group, params, t1: float, dt: float, hist_t: Array, hist_y: Array) -> Array:
     """Per-instance delayed local-var vector, real system layout."""
     tau = _group_tau(group, params, dt)
