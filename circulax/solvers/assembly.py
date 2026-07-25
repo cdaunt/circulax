@@ -23,6 +23,7 @@ algebra kernels.
 import functools
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -210,13 +211,82 @@ def _is_osdi(group) -> bool:
     return OsdiComponentGroup is not None and isinstance(group, OsdiComponentGroup)
 
 
+# ---------------------------------------------------------------------------
+# Fixed time-delay support
+# ---------------------------------------------------------------------------
+#
+# Delayed reads interpolate a per-instance query time against the accepted-
+# step history buffer (``hist_t``/``hist_y``, written by circuit_diffeq.py's
+# ``_circuit_loop``). Delay ``tau`` may vary per instance within a group (e.g.
+# waveguides of different lengths), so the interpolation itself must be
+# vmapped over the instance axis -- computing one shared delayed vector and
+# then slicing it (as ``y_guess[group.var_indices]`` does for the undelayed
+# read) would only be correct if every instance shared the same tau.
+
+
+def _interp_delayed(hist_t: Array, hist_cols: Array, tau: Array, idx: Array, t1: float) -> Array:
+    """Per-instance delayed read via ``jnp.interp``, vmapped over ``idx``'s leading axis.
+
+    Args:
+        hist_t: Ascending accepted-step sample times, shape ``(max_steps+1,)``
+            (inf-padded tail past the current step count).
+        hist_cols: Sample values to interpolate, shape ``(max_steps+1, M)``.
+        tau: Per-instance delay, shape ``(N,)``.
+        idx: Per-instance column indices into ``hist_cols``, shape ``(N, width)``.
+        t1: Current evaluation time.
+
+    Returns:
+        Delayed values, shape ``(N, width)`` -- the same layout as
+        ``y_guess[idx]`` for the undelayed read.
+
+    """
+
+    def _read_one(tau_i: Array, idx_i: Array) -> Array:
+        tq = t1 - tau_i
+        cols = hist_cols[:, idx_i]  # (max_steps+1, width)
+        return jax.vmap(lambda c: jnp.interp(tq, hist_t, c), in_axes=1)(cols)
+
+    return jax.vmap(_read_one)(tau, idx)
+
+
+def _group_tau(group, params, dt: float) -> Array:
+    """Per-instance tau, guarded against delays shorter than the current step."""
+    tau = jax.vmap(group.tau_func)(params)
+    msg = f"circulax delay: group '{group.name}' has tau < dt; delayed components require tau >= dt."
+    return eqxi.error_if(tau, tau < dt, msg)
+
+
+def _real_hist_locs(group, params, t1: float, dt: float, hist_t: Array, hist_y: Array) -> Array:
+    """Per-instance delayed local-var vector, real system layout."""
+    tau = _group_tau(group, params, dt)
+    return _interp_delayed(hist_t, hist_y, tau, group.var_indices, t1)
+
+
+def _complex_hist_locs(group, params, t1: float, dt: float, hist_t: Array, hist_y: Array, half_size: int) -> Array:
+    """Per-instance delayed local-var vector, complex (unrolled real/imag) layout."""
+    tau = _group_tau(group, params, dt)
+    hist_r = _interp_delayed(hist_t, hist_y[:, :half_size], tau, group.var_indices, t1)
+    hist_i = _interp_delayed(hist_t, hist_y[:, half_size:], tau, group.var_indices, t1)
+    return hist_r + 1j * hist_i
+
+
 def _real_physics(v: Array, p: Array, group, t1: float) -> tuple[Array, Array]:
     return group.physics_func(y=v, args=p, t=t1)
+
+
+def _real_physics_hist(v: Array, p: Array, h: Array, group, t1: float) -> tuple[Array, Array]:
+    return group.physics_func(y=v, args=p, t=t1, hist=h)
 
 
 def _complex_physics(vr: Array, vi: Array, p: Array, group, t1: float) -> tuple[Array, Array, Array, Array]:
     v = vr + 1j * vi
     f, q = group.physics_func(y=v, args=p, t=t1)
+    return f.real, f.imag, q.real, q.imag
+
+
+def _complex_physics_hist(vr: Array, vi: Array, p: Array, h: Array, group, t1: float) -> tuple[Array, Array, Array, Array]:
+    v = vr + 1j * vi
+    f, q = group.physics_func(y=v, args=p, t=t1, hist=h)
     return f.real, f.imag, q.real, q.imag
 
 
@@ -229,6 +299,14 @@ def _primal_and_jac_real(f, v: Array, p: Array) -> tuple[tuple[Array, Array], tu
     """
     n = v.shape[0]
     g = lambda v_: f(v_, p)  # close over p; differentiate w.r.t. v only
+    (f_vals, q_vals), (dfs, dqs) = jax.vmap(lambda e: jax.jvp(g, (v,), (e,)))(jnp.eye(n))
+    return (f_vals[0], q_vals[0]), (dfs.T, dqs.T)
+
+
+def _primal_and_jac_real_hist(f, v: Array, p: Array, h: Array) -> tuple[tuple[Array, Array], tuple[Array, Array]]:
+    """Same as :func:`_primal_and_jac_real`, with a fixed (non-differentiated) delayed-read ``h``."""
+    n = v.shape[0]
+    g = lambda v_: f(v_, p, h)  # close over p, h; differentiate w.r.t. v only
     (f_vals, q_vals), (dfs, dqs) = jax.vmap(lambda e: jax.jvp(g, (v,), (e,)))(jnp.eye(n))
     return (f_vals[0], q_vals[0]), (dfs.T, dqs.T)
 
@@ -258,6 +336,26 @@ def _primal_and_jac_complex(
     return primal, jac_r, jac_i
 
 
+def _primal_and_jac_complex_hist(
+    f, vr: Array, vi: Array, p: Array, h: Array
+) -> tuple[
+    tuple[Array, Array, Array, Array],
+    tuple[Array, Array, Array, Array],
+    tuple[Array, Array, Array, Array],
+]:
+    """Same as :func:`_primal_and_jac_complex`, with a fixed (non-differentiated) delayed-read ``h``."""
+    n = vr.shape[0]
+    zeros_vr = jnp.zeros_like(vr)
+    zeros_vi = jnp.zeros_like(vi)
+    g = lambda vr_, vi_: f(vr_, vi_, p, h)  # close over p, h; differentiate w.r.t. vr, vi only
+    (fr_s, fi_s, qr_s, qi_s), (dfr_r, dfi_r, dqr_r, dqi_r) = jax.vmap(lambda e: jax.jvp(g, (vr, vi), (e, zeros_vi)))(jnp.eye(n))
+    _, (dfr_i, dfi_i, dqr_i, dqi_i) = jax.vmap(lambda e: jax.jvp(g, (vr, vi), (zeros_vr, e)))(jnp.eye(n))
+    primal = (fr_s[0], fi_s[0], qr_s[0], qi_s[0])
+    jac_r = (dfr_r.T, dfi_r.T, dqr_r.T, dqi_r.T)
+    jac_i = (dfr_i.T, dfi_i.T, dqr_i.T, dqi_i.T)
+    return primal, jac_r, jac_i
+
+
 def assemble_system_real(
     y_guess: Array,
     component_groups: dict,
@@ -265,6 +363,8 @@ def assemble_system_real(
     dt: float,
     source_scale: float = 1.0,
     alpha: float = 1.0,
+    hist_t: Array | None = None,
+    hist_y: Array | None = None,
 ) -> tuple[Array, Array, Array]:
     """Assemble the residual vectors and effective Jacobian values for a real system.
 
@@ -348,9 +448,15 @@ def assemble_system_real(
             vals_list.append(j_eff.reshape(-1))
             continue
 
-        physics_at_t1 = functools.partial(_real_physics, group=group, t1=t1)
-
-        (f_l, q_l), (df_l, dq_l) = jax.vmap(functools.partial(_primal_and_jac_real, physics_at_t1))(v_locs, params)
+        if group.has_delay and hist_t is not None:
+            hist_locs = _real_hist_locs(group, params, t1, dt, hist_t, hist_y)
+            physics_at_t1 = functools.partial(_real_physics_hist, group=group, t1=t1)
+            (f_l, q_l), (df_l, dq_l) = jax.vmap(
+                functools.partial(_primal_and_jac_real_hist, physics_at_t1)
+            )(v_locs, params, hist_locs)
+        else:
+            physics_at_t1 = functools.partial(_real_physics, group=group, t1=t1)
+            (f_l, q_l), (df_l, dq_l) = jax.vmap(functools.partial(_primal_and_jac_real, physics_at_t1))(v_locs, params)
 
         total_f = total_f.at[group.eq_indices].add(f_l)
         total_q = total_q.at[group.eq_indices].add(q_l)
@@ -581,6 +687,8 @@ def assemble_residual_only_real(
     component_groups: dict,
     t1: float,
     dt: float,
+    hist_t: Array | None = None,
+    hist_y: Array | None = None,
 ) -> tuple[Array, Array]:
     """Assemble the residual vectors for a real system, without computing the Jacobian.
 
@@ -594,9 +702,12 @@ def assemble_residual_only_real(
         component_groups: Compiled component groups returned by
             :func:`compile_netlist`, keyed by group name.
         t1: Time at which the system is being evaluated.
-        dt: Unused; present for signature symmetry with
-            :func:`assemble_system_real` so the two functions are
-            interchangeable at call sites.
+        dt: Present for signature symmetry with :func:`assemble_system_real`
+            so the two functions are interchangeable at call sites. Only
+            used to guard ``tau >= dt`` for groups with delayed components.
+        hist_t: Accepted-step sample times for delayed reads, or ``None``
+            if the circuit has no delayed components.
+        hist_y: Accepted-step state samples for delayed reads, or ``None``.
 
     Returns:
         A two-tuple ``(total_f, total_q)`` where both arrays have shape
@@ -625,9 +736,12 @@ def assemble_residual_only_real(
 
         v = y_guess[group.var_indices]
 
-        physics_at_t1 = functools.partial(_real_physics, group=group, t1=t1)
-
-        f_l, q_l = jax.vmap(physics_at_t1)(v, group.params)
+        if group.has_delay and hist_t is not None:
+            hist_locs = _real_hist_locs(group, group.params, t1, dt, hist_t, hist_y)
+            f_l, q_l = jax.vmap(functools.partial(_real_physics_hist, group=group, t1=t1))(v, group.params, hist_locs)
+        else:
+            physics_at_t1 = functools.partial(_real_physics, group=group, t1=t1)
+            f_l, q_l = jax.vmap(physics_at_t1)(v, group.params)
 
         total_f = total_f.at[group.eq_indices].add(f_l)
         total_q = total_q.at[group.eq_indices].add(q_l)
@@ -642,6 +756,8 @@ def assemble_system_complex(
     dt: float,
     source_scale: float = 1.0,
     alpha: float = 1.0,
+    hist_t: Array | None = None,
+    hist_y: Array | None = None,
 ) -> tuple[Array, Array, Array]:
     """Assemble the residual vectors and effective Jacobian values for an unrolled complex system.
 
@@ -732,11 +848,17 @@ def assemble_system_complex(
             else group.params
         )
 
-        physics_split = functools.partial(_complex_physics, group=group, t1=t1)
-
-        (fr, fi, qr, qi), (dfr_r, dfi_r, dqr_r, dqi_r), (dfr_i, dfi_i, dqr_i, dqi_i) = jax.vmap(
-            functools.partial(_primal_and_jac_complex, physics_split)
-        )(v_r, v_i, params)
+        if group.has_delay and hist_t is not None:
+            hist_locs = _complex_hist_locs(group, params, t1, dt, hist_t, hist_y, half_size)
+            physics_split = functools.partial(_complex_physics_hist, group=group, t1=t1)
+            (fr, fi, qr, qi), (dfr_r, dfi_r, dqr_r, dqi_r), (dfr_i, dfi_i, dqr_i, dqi_i) = jax.vmap(
+                functools.partial(_primal_and_jac_complex_hist, physics_split)
+            )(v_r, v_i, params, hist_locs)
+        else:
+            physics_split = functools.partial(_complex_physics, group=group, t1=t1)
+            (fr, fi, qr, qi), (dfr_r, dfi_r, dqr_r, dqi_r), (dfr_i, dfi_i, dqr_i, dqi_i) = jax.vmap(
+                functools.partial(_primal_and_jac_complex, physics_split)
+            )(v_r, v_i, params)
 
         idx_r, idx_i = group.eq_indices, group.eq_indices + half_size
         total_f = total_f.at[idx_r].add(fr).at[idx_i].add(fi)
@@ -756,6 +878,8 @@ def assemble_residual_only_complex(
     component_groups: dict,
     t1: float,
     dt: float,
+    hist_t: Array | None = None,
+    hist_y: Array | None = None,
 ) -> tuple[Array, Array]:
     """Assemble the residual vectors for an unrolled complex system, without computing the Jacobian.
 
@@ -768,9 +892,12 @@ def assemble_residual_only_complex(
         component_groups: Compiled component groups returned by
             :func:`compile_netlist`, keyed by group name.
         t1: Time at which the system is being evaluated.
-        dt: Unused; present for signature symmetry with
-            :func:`assemble_system_complex` so the two functions are
-            interchangeable at call sites.
+        dt: Present for signature symmetry with :func:`assemble_system_complex`
+            so the two functions are interchangeable at call sites. Only used
+            to guard ``tau >= dt`` for groups with delayed components.
+        hist_t: Accepted-step sample times for delayed reads, or ``None``
+            if the circuit has no delayed components.
+        hist_y: Accepted-step state samples for delayed reads, or ``None``.
 
     Returns:
         A two-tuple ``(total_f, total_q)`` where both arrays have shape
@@ -802,9 +929,13 @@ def assemble_residual_only_complex(
 
         v_r, v_i = y_real[group.var_indices], y_imag[group.var_indices]
 
-        physics_split = functools.partial(_complex_physics, group=group, t1=t1)
-
-        fr, fi, qr, qi = jax.vmap(physics_split)(v_r, v_i, group.params)
+        if group.has_delay and hist_t is not None:
+            hist_locs = _complex_hist_locs(group, group.params, t1, dt, hist_t, hist_y, half_size)
+            physics_split = functools.partial(_complex_physics_hist, group=group, t1=t1)
+            fr, fi, qr, qi = jax.vmap(physics_split)(v_r, v_i, group.params, hist_locs)
+        else:
+            physics_split = functools.partial(_complex_physics, group=group, t1=t1)
+            fr, fi, qr, qi = jax.vmap(physics_split)(v_r, v_i, group.params)
 
         idx_r, idx_i = group.eq_indices, group.eq_indices + half_size
         total_f = total_f.at[idx_r].add(fr).at[idx_i].add(fi)

@@ -69,6 +69,68 @@ def OpticalWaveguide(
     return {"p1": i_vec[0], "p2": i_vec[1]}, {}
 
 
+@component(ports=("p1", "p2"), states=("i_p2",))
+def OpticalDelayLine(
+    signals: Signals,
+    s: States,
+    hist: Signals,
+    length_um: float = 100.0,
+    loss_dB_cm: float = 1.0,
+    neff: float = 2.4,
+    n_group: float = 4.0,
+    wavelength_nm: float = 1310.0,
+) -> PhysicsReturn:
+    """Waveguide modelled as an explicit time-of-flight delay line (real group delay).
+
+    Unlike :func:`OpticalWaveguide` -- which is a steady-state S-matrix stamp
+    only valid for CW/frequency-domain analysis -- this component enforces
+    the actual transient envelope delay: the output field at ``p2`` is the
+    input field at ``p1`` from ``tau = length_um * n_group / c`` seconds ago,
+    attenuated and phase-shifted, via a VCVS-style constraint (same pattern as
+    :func:`TunableBeamSplitter`). ``p1`` carries no self-stamp and must be
+    driven by a connected source/component, matching that same convention.
+
+    See ``circulax.solvers.assembly`` for how ``hist`` (the delayed local
+    state) is computed -- a fixed-size accepted-step history buffer read via
+    ``jnp.interp``, vmapped per-instance since ``tau`` may vary across
+    instances of different length. Adaptive step-size controllers (e.g.
+    ``PIDController``) are supported (see gdsfactory/circulax#2): the
+    proposed step is automatically clamped to the smallest active ``tau``
+    across the circuit. ``ConstantStepSize`` remains unclamped -- an
+    explicit ``dt0`` larger than ``tau`` still raises.
+
+    Args:
+        signals: Field amplitudes at input (``p1``) and output (``p2``).
+        s: Branch current state variable ``i_p2``, carrying the VCVS current
+            injected at the output port.
+        hist: This instance's own port fields at ``t - tau``, injected by the
+            solver. Only ``hist.p1`` is used.
+        length_um: Waveguide length in micrometres. Defaults to ``100.0``.
+        loss_dB_cm: Propagation loss in dB/cm. Defaults to ``1.0``.
+        neff: Effective refractive index, used for the carrier phase shift
+            over the delay. Defaults to ``2.4``.
+        n_group: Group refractive index; sets the propagation delay via
+            ``tau = length_um * n_group / c``. Defaults to ``4.0``.
+        wavelength_nm: Operating wavelength in nm. Defaults to ``1310.0``.
+
+    """
+    phi = 2.0 * jnp.pi * neff * (length_um / wavelength_nm) * 1000.0
+    loss_val = loss_dB_cm * (length_um / 10000.0)
+    T_mag = 10.0 ** (-loss_val / 20.0)
+    T = T_mag * jnp.exp(-1j * phi)
+
+    constraint = signals.p2 - T * hist.p1
+
+    return {"p1": 0.0, "p2": s.i_p2, "i_p2": constraint}, {}
+
+
+@OpticalDelayLine.delay
+def _optical_delay_line_tau(length_um: float = 100.0, n_group: float = 4.0) -> float:
+    """Group delay ``tau = length / v_group`` in seconds (``length_um`` in micrometres)."""
+    c_um_per_s = 2.99792458e14  # speed of light, um/s
+    return (length_um * n_group) / c_um_per_s
+
+
 @component(ports=("grating", "waveguide"), holomorphic=True)
 def Grating(
     signals: Signals,
