@@ -5,6 +5,15 @@ import mkdocs_gen_files
 
 this_dir = Path(__file__).parent
 
+# Pull hand-written design specs (outside docs_dir) into the docs tree so
+# they can be referenced from SUMMARY.md like any other page.
+specs_root = (this_dir / "../specs").resolve()
+for spec_name in ("hierarchy.md",):
+    spec_path = specs_root / spec_name
+    with mkdocs_gen_files.open(spec_name, "w") as fd:
+        fd.write(spec_path.read_text())
+    mkdocs_gen_files.set_edit_path(spec_name, Path("../specs") / spec_name)
+
 src_root = (this_dir / "../circulax").resolve()
 excluded_api_paths = {Path("components") / ("va_" + "component.py")}
 
