@@ -46,7 +46,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from circulax.solvers.assembly import assemble_gc_complex, assemble_gc_complex_2n, assemble_gc_real
+from circulax.solvers.assembly import (
+    assemble_gc_complex,
+    assemble_gc_complex_2n,
+    assemble_gc_real,
+)
 from circulax.solvers.linear import GROUND_STIFFNESS, _build_index_arrays
 
 
@@ -286,10 +290,11 @@ def _setup_ac_sweep_2n(
                 Y = Y.at[rows_fd + N, cols_fd].add(Y_flat.imag)
 
             Y = Y.at[port_nodes_arr, port_nodes_arr].add(1.0 / z0_arr)
+            Y = Y.at[port_nodes_arr + N, port_nodes_arr + N].add(1.0 / z0_arr)
             Y = Y.at[ground_2n, ground_2n].add(GROUND_STIFFNESS)
 
             V = jnp.linalg.solve(Y, RHS)
-            V_ports = V[port_nodes_arr, :]
+            V_ports = V[port_nodes_arr, :] + 1j * V[port_nodes_arr + N, :]
             return V_ports - jnp.eye(N_ports, dtype=jnp.complex128)
 
         return jax.vmap(_solve_one_freq)(freqs)

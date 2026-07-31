@@ -41,6 +41,7 @@ compile_netlist(net_dict, models) → [ComponentGroup, ...]
 | Spec | Status | What it covers |
 |------|--------|----------------|
 | [hierarchy.md](hierarchy.md) | **Done** | Hierarchical subcircuit composition — `RecursiveNetlist` support, netlist-level flattening, `Circuit`-as-subcircuit (V1, PR #39) |
+| [time-delay.md](time-delay.md) | **Done** | Frequency-domain delay line for AC/HB — `delay_line_fdomain` group-delay element (branch `feat-time-delay`) |
 | Physics — `circulax/components/` | **Planned** | <!-- FILL --> |
 | Topology — `circulax/compiler.py`, `circulax/netlist.py` | **Planned** | <!-- FILL --> |
 | Analysis — `circulax/solvers/` | **Planned** | <!-- FILL --> |

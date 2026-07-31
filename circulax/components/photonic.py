@@ -7,7 +7,7 @@ import jax.nn as jnn
 import jax.numpy as jnp
 
 from circulax.components.base_component import PhysicsReturn, Signals, States, component, source
-from circulax.s_transforms import s_to_y
+from circulax.s_transforms import fdomain_component, s_to_y
 
 # ===========================================================================
 # Passive Optical Components (S-Matrix based)
@@ -129,6 +129,45 @@ def _optical_delay_line_tau(length_um: float = 100.0, n_group: float = 4.0) -> f
     """Group delay ``tau = length / v_group`` in seconds (``length_um`` in micrometres)."""
     c_um_per_s = 2.99792458e14  # speed of light, um/s
     return (length_um * n_group) / c_um_per_s
+
+
+@fdomain_component(ports=("p1", "p2"))
+def delay_line_fdomain(
+    f: float,
+    length_um: float = 100.0,
+    loss_dB_cm: float = 1.0,
+    n_group: float = 4.0,
+) -> jnp.ndarray:
+    """Frequency-domain delay line for AC and harmonic-balance analysis.
+
+    Models a pure transmission-line group delay: ``S21 = T_mag * exp(-j 2pi f tau)``
+    where ``tau = length_um * n_group / c`` and ``T_mag`` accounts for
+    propagation loss.  The S-matrix is converted to a Y-matrix via
+    :func:`s_to_y`.
+
+    This is a frequency-domain-only component (``f`` = modulation / signal
+    frequency, e.g. 1 GHz for an AC sweep).  Carrier-phase effects
+    (``neff``, ``wavelength_nm``) belong in the wavelength-domain
+    :func:`OpticalWaveguide` and are intentionally excluded here.
+
+    This component is AC/HB-only; it cannot be used in transient simulation
+    (fdomain components raise at transient setup time).
+
+    Args:
+        f: Modulation frequency in Hz (supplied by the AC/HB solver).
+        length_um: Waveguide length in micrometres. Defaults to ``100.0``.
+        loss_dB_cm: Propagation loss in dB/cm. Defaults to ``1.0``.
+        n_group: Group refractive index; sets the propagation delay via
+            ``tau = length_um * n_group / c``. Defaults to ``4.0``.
+
+    """
+    c_um_per_s = 2.99792458e14
+    loss_val = loss_dB_cm * (length_um / 10000.0)
+    T_mag = 10.0 ** (-loss_val / 20.0)
+    tau = (length_um * n_group) / c_um_per_s
+    T = T_mag * jnp.exp(-1j * 2.0 * jnp.pi * f * tau)
+    S = jnp.array([[0.0, T], [T, 0.0]], dtype=jnp.complex128)
+    return s_to_y(S)
 
 
 @component(ports=("grating", "waveguide"), holomorphic=True)

@@ -370,3 +370,71 @@ def test_undelayed_circuit_unaffected(simple_lrc_netlist):
         max_steps=5000, throw=True,
     )
     assert jnp.all(jnp.isfinite(sol.ys))
+
+
+# ===========================================================================
+# Frequency-domain delay line (AC/HB)
+# ===========================================================================
+
+
+def test_delay_line_fdomain_ac_sweep():
+    """AC sweep with delay_line_fdomain reproduces S21 = T_mag*exp(-j*2*pi*f*tau).
+
+    This fdomain component is a pure group-delay element with no wavelength
+    parameters.  The analytic reference has no carrier-phase term — only loss
+    and delay.
+    """
+    from circulax.components.photonic import delay_line_fdomain
+    from circulax.solvers import setup_ac_sweep
+
+    tau = 1e-12
+    length_um = tau * _C_UM_PER_S / _N_GROUP
+    loss_dB_cm = 2.0
+
+    models_map = {
+        "delay": delay_line_fdomain,
+        "ground": lambda: 0,
+    }
+    net_dict = {
+        "instances": {
+            "GND": {"component": "ground"},
+            "WG1": {
+                "component": "delay",
+                "settings": {
+                    "length_um": length_um,
+                    "n_group": _N_GROUP,
+                    "loss_dB_cm": loss_dB_cm,
+                },
+            },
+        },
+        "connections": {},
+        "ports": {"in": "WG1,p1", "out": "WG1,p2"},
+    }
+    groups, num_vars, pmap = compile_netlist(net_dict, models_map)
+    solver = analyze_circuit(groups, num_vars, backend="dense", is_complex=True)
+    y_dc = solver.solve_dc(groups, jnp.zeros(num_vars * 2, dtype=jnp.float64))
+
+    port_nodes = [pmap["WG1,p1"], pmap["WG1,p2"]]
+    z0 = 1.0
+    run_ac = setup_ac_sweep(groups, num_vars, port_nodes, z0=z0, is_complex=True)
+
+    freqs = jnp.linspace(1e9, 500e9, 20)
+    S = run_ac(y_dc, freqs)
+
+    assert S.shape == (len(freqs), 2, 2)
+    assert jnp.all(jnp.isfinite(S))
+
+    S21 = S[:, 1, 0]
+
+    loss_val = loss_dB_cm * (length_um / 10000.0)
+    T_mag = 10.0 ** (-loss_val / 20.0)
+    omega = 2.0 * jnp.pi * freqs
+    S21_analytic = T_mag * jnp.exp(-1j * omega * tau)
+
+    assert jnp.allclose(jnp.abs(S21), jnp.abs(S21_analytic), atol=1e-6), (
+        f"Magnitude error: {jnp.max(jnp.abs(jnp.abs(S21) - jnp.abs(S21_analytic))):.2e}"
+    )
+    phase_err = jnp.angle(S21 * jnp.conj(S21_analytic))
+    assert jnp.max(jnp.abs(phase_err)) < 1e-6, (
+        f"Phase error: {jnp.max(jnp.abs(phase_err)):.2e} rad"
+    )
