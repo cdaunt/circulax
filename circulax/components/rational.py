@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from circulax.components.base_component import CircuitComponent, _extract_param
+from circulax.s_transforms import s_to_y
 
 
 def rational_component(
@@ -211,6 +212,98 @@ def rational_fdomain_component(
         "ss_C": eqx.field(default_factory=lambda: C_val),
         "ss_D": eqx.field(default_factory=lambda: D_val),
         "ss_E": eqx.field(default_factory=lambda: E_val),
+    }
+
+    cls = type(name, (CircuitComponent,), namespace)
+    return cls
+
+
+def rational_delay_component(
+    ss: Any,
+    tau: Any,
+    name: str = "RationalDelayModel",
+    z0: float = 50.0,
+) -> type[CircuitComponent]:
+    """Create an fdomain component from SSModel + per-port delay.
+
+    Evaluates the full cascade ``delay(tau/2) * rational * delay(tau/2)`` in
+    the frequency domain via reference-plane re-embedding::
+
+        S_full(f) = P(f) @ S_deembed(f) @ P(f)
+
+    where ``P = diag(exp(-j*2*pi*f*tau_k/2))``, ``S_deembed`` comes from the
+    rational model's Y(s), and the result is converted back to Y for the
+    circuit solver.
+
+    AC sweep and harmonic balance only — not usable in transient (fdomain
+    component). For transient, use :func:`rational_component` alone and wire
+    delay elements separately.
+
+    Args:
+        ss: SSModel from vfitax (A, B, C, D, E arrays).
+        tau: Per-port group delay in seconds, shape ``(Nc,)``.
+        name: Class name for the generated component.
+        z0: Reference impedance for S/Y conversion.
+
+    Returns:
+        A CircuitComponent subclass with ``_is_fdomain = True``.
+    """
+    A_val = jnp.array(np.asarray(ss.A, dtype=np.complex128))
+    B_val = jnp.array(np.asarray(ss.B, dtype=np.complex128))
+    C_val = jnp.array(np.asarray(ss.C, dtype=np.complex128))
+    D_val = jnp.array(np.asarray(ss.D, dtype=np.complex128))
+    E_val = jnp.array(np.asarray(ss.E, dtype=np.complex128))
+    tau_val = jnp.array(np.asarray(tau, dtype=np.float64))
+
+    Nc = D_val.shape[0]
+    ports = tuple(f"p{i+1}" for i in range(Nc))
+    z0_val = float(z0)
+
+    def _fast_physics(f: float, args: Any) -> jnp.ndarray:
+        ss_A = _extract_param(args, "ss_A")
+        ss_B = _extract_param(args, "ss_B")
+        ss_C = _extract_param(args, "ss_C")
+        ss_D = _extract_param(args, "ss_D")
+        ss_E = _extract_param(args, "ss_E")
+        tau_arr = _extract_param(args, "tau")
+
+        s = 1j * 2.0 * jnp.pi * f
+        resolvent = 1.0 / (s - ss_A)
+        Y_deemb = ss_C @ (resolvent[:, None] * ss_B) + ss_D + s * ss_E
+
+        eye = jnp.eye(Nc, dtype=jnp.complex128)
+        S_deemb = (eye - z0_val * Y_deemb) @ jnp.linalg.inv(eye + z0_val * Y_deemb)
+
+        phase = jnp.exp(-1j * jnp.pi * f * tau_arr)
+        P = jnp.diag(phase)
+        S_full = P @ S_deemb @ P
+        return s_to_y(S_full, z0=z0_val)
+
+    @classmethod
+    def solver_call(cls, f: float, args: Any) -> jnp.ndarray:
+        return cls._fast_physics(f, args)
+
+    namespace: dict[str, Any] = {
+        "__annotations__": {
+            "ss_A": jnp.ndarray,
+            "ss_B": jnp.ndarray,
+            "ss_C": jnp.ndarray,
+            "ss_D": jnp.ndarray,
+            "ss_E": jnp.ndarray,
+            "tau": jnp.ndarray,
+        },
+        "ports": ports,
+        "states": (),
+        "_is_fdomain": True,
+        "_uses_time": False,
+        "_fast_physics": staticmethod(_fast_physics),
+        "solver_call": solver_call,
+        "ss_A": eqx.field(default_factory=lambda: A_val),
+        "ss_B": eqx.field(default_factory=lambda: B_val),
+        "ss_C": eqx.field(default_factory=lambda: C_val),
+        "ss_D": eqx.field(default_factory=lambda: D_val),
+        "ss_E": eqx.field(default_factory=lambda: E_val),
+        "tau": eqx.field(default_factory=lambda: tau_val),
     }
 
     cls = type(name, (CircuitComponent,), namespace)

@@ -1,14 +1,13 @@
-# Frequency-Domain Delay Line for AC/HB Analysis
+# Time Delay for Circuit Simulation
 
 ## Overview
 
 | Property | Value |
 |----------|-------|
-| Description | Pure group-delay element for AC sweep and harmonic balance |
-| SPICE Equivalent | Ideal lossless transmission line (frequency domain only) |
-| Approach | `exp(-j 2π f τ)` on S-matrix off-diagonals, converted to Y via `s_to_y` |
-| Analysis types | AC sweep, harmonic balance |
-| Transient | Not supported — fdomain components raise at `setup_transient()` time |
+| Description | Group-delay modeling for waveguides and transmission lines |
+| SPICE Equivalent | Ideal lossless transmission line |
+| Approach | Fdomain: `exp(-j 2π f τ)` S-matrix; Transient: DDE history buffer |
+| Analysis types | AC sweep, harmonic balance, transient |
 | Status | Complete (branch `feat-time-delay`) |
 
 ## Problem Statement

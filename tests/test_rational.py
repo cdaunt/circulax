@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from circulax.compiler import compile_netlist
-from circulax.components.rational import rational_component, rational_fdomain_component
+from circulax.components.rational import rational_component, rational_delay_component, rational_fdomain_component
 from circulax.solvers import analyze_circuit, setup_ac_sweep, setup_transient
 
 jax.config.update("jax_enable_x64", True)
@@ -296,3 +296,101 @@ class TestTransientStability:
         v1_sim = float(sol.ys[0, dut_p1_node])
         np.testing.assert_allclose(v1_sim, v1_expected, rtol=0.01,
                                    err_msg="Transient did not hold at DC divider value")
+
+
+def _measure_s_matrix(Comp, freqs, z0=50.0):
+    """Evaluate S(f) from a component's solver_call Y(f) output."""
+    inst = Comp()
+    Nc = len(Comp.ports)
+    eye = np.eye(Nc, dtype=np.complex128)
+    S = np.zeros((len(freqs), Nc, Nc), dtype=np.complex128)
+    for i, f in enumerate(freqs):
+        Y = np.asarray(Comp.solver_call(float(f), inst))
+        S[i] = (eye - z0 * Y) @ np.linalg.inv(eye + z0 * Y)
+    return S
+
+
+def _group_delay_from_s(S_element, freqs):
+    """Compute group delay from a 1-D array of S-parameter values vs frequency."""
+    phase = np.unwrap(np.angle(S_element))
+    omega = 2.0 * np.pi * freqs
+    return -np.gradient(phase, omega)
+
+
+class TestRationalDelayComponent:
+    """Test the delay+rational composite fdomain component."""
+
+    def test_creates_fdomain_class(self):
+        ss = _make_test_ss()
+        tau = np.array([1e-9, 1e-9])
+        Comp = rational_delay_component(ss, tau)
+        assert Comp._is_fdomain
+        assert Comp.ports == ("p1", "p2")
+
+    def test_s21_group_delay_matches_tau(self):
+        """S21 group delay of composite exceeds rational-only by exactly tau."""
+        ss = _make_test_ss()
+        z0 = 50.0
+        tau_val = 1e-9
+        tau = np.array([tau_val, tau_val])
+
+        Comp_delay = rational_delay_component(ss, tau, name="RatDelay", z0=z0)
+        Comp_nodelay = rational_delay_component(ss, np.array([0.0, 0.0]), name="RatNoDelay", z0=z0)
+
+        freqs = np.linspace(1e9, 15e9, 300)
+
+        S_delay = _measure_s_matrix(Comp_delay, freqs, z0)
+        S_nodelay = _measure_s_matrix(Comp_nodelay, freqs, z0)
+
+        gd_delay = _group_delay_from_s(S_delay[:, 0, 1], freqs)
+        gd_nodelay = _group_delay_from_s(S_nodelay[:, 0, 1], freqs)
+        excess = np.median(gd_delay - gd_nodelay)
+
+        np.testing.assert_allclose(excess, tau_val, rtol=0.03,
+                                   err_msg=f"S21 excess group delay {excess:.3e} != tau {tau_val:.3e}")
+
+    def test_zero_delay_matches_rational_only(self):
+        """With tau=0, the composite should match rational_fdomain_component."""
+        ss = _make_test_ss()
+        tau = np.array([0.0, 0.0])
+
+        Comp_delay = rational_delay_component(ss, tau, name="RatDelayZero")
+        Comp_fd = rational_fdomain_component(ss, name="RatFD0")
+
+        freqs = [1e9, 5e9, 20e9]
+        for f in freqs:
+            Y_delay = Comp_delay.solver_call(f, Comp_delay())
+            Y_fd = Comp_fd.solver_call(f, Comp_fd())
+            np.testing.assert_allclose(np.asarray(Y_delay), np.asarray(Y_fd), atol=1e-10)
+
+    def test_asymmetric_delay(self):
+        """Asymmetric delays: S11 excess GD = tau1, S22 excess GD = tau2."""
+        ss = _make_test_ss()
+        z0 = 50.0
+        tau1, tau2 = 1e-9, 2e-9
+        tau = np.array([tau1, tau2])
+
+        Comp_delay = rational_delay_component(ss, tau, name="AsymDelay", z0=z0)
+        Comp_nodelay = rational_delay_component(ss, np.array([0.0, 0.0]), name="AsymNoDelay", z0=z0)
+
+        freqs = np.linspace(1e9, 15e9, 300)
+        S_delay = _measure_s_matrix(Comp_delay, freqs, z0)
+        S_nodelay = _measure_s_matrix(Comp_nodelay, freqs, z0)
+
+        gd_s11 = _group_delay_from_s(S_delay[:, 0, 0], freqs)
+        gd_s11_ref = _group_delay_from_s(S_nodelay[:, 0, 0], freqs)
+        excess_s11 = np.median(gd_s11 - gd_s11_ref)
+        np.testing.assert_allclose(excess_s11, tau1, rtol=0.05,
+                                   err_msg=f"S11 excess GD {excess_s11:.3e} != tau1 {tau1:.3e}")
+
+        gd_s22 = _group_delay_from_s(S_delay[:, 1, 1], freqs)
+        gd_s22_ref = _group_delay_from_s(S_nodelay[:, 1, 1], freqs)
+        excess_s22 = np.median(gd_s22 - gd_s22_ref)
+        np.testing.assert_allclose(excess_s22, tau2, rtol=0.05,
+                                   err_msg=f"S22 excess GD {excess_s22:.3e} != tau2 {tau2:.3e}")
+
+        gd_s21 = _group_delay_from_s(S_delay[:, 0, 1], freqs)
+        gd_s21_ref = _group_delay_from_s(S_nodelay[:, 0, 1], freqs)
+        excess_s21 = np.median(gd_s21 - gd_s21_ref)
+        np.testing.assert_allclose(excess_s21, (tau1 + tau2) / 2, rtol=0.05,
+                                   err_msg=f"S21 excess GD {excess_s21:.3e} != (tau1+tau2)/2")
