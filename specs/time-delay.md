@@ -13,23 +13,27 @@
 ## Problem Statement
 
 Photonic circuits require modeling signal propagation delay through waveguides.
-For AC and harmonic-balance analysis, delay is a frequency-domain concept: a
-delay of `τ` seconds multiplies each S-parameter off-diagonal by `exp(-j 2π f τ)`.
+Two complementary approaches coexist:
+
+1. **Frequency domain** (AC/HB): delay is `exp(-j 2π f τ)` on S21, converted to Y.
+2. **Transient** (time domain): delay is a DDE with history buffer — the solver
+   reads delayed state `y(t-τ)` via interpolation of a ring buffer.
 
 The key insight is that `f` in an `@fdomain_component` is the **modulation/signal
 frequency** (e.g. 1 GHz for an AC sweep), not the optical carrier frequency
 (~229 THz at 1310 nm). Carrier-phase effects (`neff`, `wavelength_nm`) belong in
-the wavelength-domain `OpticalWaveguide` and are intentionally excluded from this
-component.
+the wavelength-domain `OpticalWaveguide` and are intentionally excluded from these
+components.
 
 ### Design decisions
 
 | Decision | Rationale |
 |----------|-----------|
+| Two component types | `delay_line_fdomain` for AC/HB; `OpticalDelayLine` for transient — each uses the natural formulation for its analysis type |
 | `@fdomain_component` decorator | Provides `Y(f)` admittance matrices stamped into `Y_total` at each frequency point — no netlist expansion |
+| `@component` with `hist` arg | Transient delay uses the `hist` mechanism: `_has_delay=True` triggers history buffer allocation in the solver |
 | No carrier phase | `f` = modulation frequency, not optical carrier; `neff`/`wavelength_nm` are wavelength-domain concepts |
 | `s_to_y` conversion | Reuses existing S→Y infrastructure; consistent with `OpticalWaveguide` |
-| No transient support | Fdomain components are AC/HB-only by design; `setup_transient()` raises `RuntimeError` if any group has `is_fdomain=True` |
 
 ---
 
@@ -107,24 +111,15 @@ S = run_ac(y_dc, jnp.linspace(1e9, 100e9, 50))
 
 | File | Change |
 |------|--------|
-| `circulax/components/photonic.py` | `delay_line_fdomain` component; removed `OpticalDelayLine` |
-| `circulax/components/__init__.py` | Exports `delay_line_fdomain` |
-| `tests/test_delay.py` | `test_delay_line_fdomain_ac_sweep` — validates S21 magnitude and phase against analytic formula |
-
-### Removed files / code (old transient delay machinery)
-
-The following infrastructure was removed as part of the pivot from transient
-history-buffer delays to the cleaner fdomain approach:
-
-| File | Removed |
-|------|---------|
-| `circulax/components/base_component.py` | `hist` argument detection, `@Component.delay` decorator, `_has_delay` flag, `tau_of`, `_tau_cell`, `_register_delay`, `_resolve_tau`, `has_hist_arg` |
+| `circulax/components/photonic.py` | `delay_line_fdomain` (AC/HB) and `OpticalDelayLine` (transient) components |
+| `circulax/components/base_component.py` | `hist` argument detection, `@Component.delay` decorator, `_has_delay` flag |
 | `circulax/compiler.py` | `has_delay` and `tau_func` fields on `ComponentGroup` |
-| `circulax/solvers/assembly.py` | `_interp_delayed`, `_group_tau`, `min_active_tau`, `assemble_delay_gc_real/complex/complex_2n`, delayed physics/Jacobian wrappers, `hist_t`/`hist_y` params on all `assemble_*` functions |
-| `circulax/solvers/circuit_diffeq.py` | `CircuitState.hist_t`/`hist_y` fields, buffer allocation, seed/write/clamp logic, `record_history`/`min_tau` params |
-| `circulax/solvers/transient.py` | `has_delay` detection, `min_tau` computation, `record_history` kwarg, delay warning callback, `hist_t`/`hist_y` params on helper functions |
-| `circulax/solvers/ac_sweep.py` | `assemble_delay_gc_*` imports, `has_delay`/`delay_data` variables, per-frequency delay-phase contribution loops |
-| `tests/test_delay.py` | 8 old transient delay tests (`test_delay_line_matches_analytic_shift`, gradient tests, adaptive tests, `OpticalDelayLine` AC sweep test, etc.) |
+| `circulax/solvers/assembly.py` | `_interp_delayed`, `_group_tau`, `min_active_tau`, delayed-read branches |
+| `circulax/solvers/circuit_diffeq.py` | `CircuitState.hist_t`/`hist_y` fields, buffer allocation/seed/write |
+| `circulax/solvers/transient.py` | `has_delay` detection, `min_tau` computation, history threading |
+| `circulax/solvers/ac_sweep.py` | Complex-mode S-parameter extraction fix for 2N real-block form |
+| `circulax/components/__init__.py` | Exports `delay_line_fdomain`, `OpticalDelayLine` |
+| `tests/test_delay.py` | 8 tests (7 transient + 1 fdomain) |
 
 ---
 
@@ -133,17 +128,23 @@ history-buffer delays to the cleaner fdomain approach:
 | Test | Verification |
 |------|-------------|
 | `test_delay_line_fdomain_ac_sweep` | S21 magnitude matches `T_mag` within 1e-6; S21 phase matches `-2πfτ` within 1e-6 rad |
+| `test_delay_line_matches_analytic_shift` | Transient output at DUT port matches ideal delayed step |
+| `test_delay_line_gradient` | `jax.grad` through delay line produces finite, nonzero gradient |
+| `test_optical_delay_line_matches_analytic` | Phase-shifted output matches analytic expectation |
+| `test_delay_gradient_length` | Gradient of output w.r.t. waveguide length is finite |
+| `test_delay_adaptive_step_size` | Adaptive solver produces same result as fixed-step |
+| `test_delay_gradient_adaptive` | Gradient through adaptive solver is finite |
+| `test_optical_delay_line_ac_sweep` | AC sweep S21 matches analytic delay formula |
 
 ---
 
 ## Known Limitations
 
-### 1. No transient delay support — **By design**
+### 1. Fdomain components are AC/HB only
 
 Fdomain components cannot be used in transient simulation. `setup_transient()` raises
-`RuntimeError` if any group has `is_fdomain=True`. Transient delay would require
-re-implementing the history-buffer machinery that was removed, or upstream diffrax DDE
-support.
+`RuntimeError` if any group has `is_fdomain=True`. For transient delay, use
+`OpticalDelayLine` (transient `@component` with history buffer).
 
 ### 2. Near-lossless conditioning — **Inherited from `s_to_y`**
 
@@ -152,10 +153,17 @@ near-singular, causing `s_to_y` to produce large Y-matrix entries. This is the s
 limitation as `OpticalWaveguide` and other S-matrix-based components. Workaround: use
 a small nonzero `loss_dB_cm`.
 
-### 3. No state-dependent delays — **By design**
+### 3. No state-dependent delays
 
 Delay `τ` is computed from component parameters (`length_um`, `n_group`), not from the
-circuit state. State-dependent delays would require DDE machinery.
+circuit state. State-dependent delays would require DDE machinery beyond the current
+fixed-τ history buffer.
+
+### 4. Delay + rational composite is AC/HB only
+
+`rational_delay_component` (see [vector-fitting.md](vector-fitting.md)) creates an
+fdomain composite — it cannot be used in transient. For transient simulation of fitted
+S-parameter data, use `rational_component` alone and wire delay elements separately.
 
 ---
 
@@ -164,6 +172,6 @@ circuit state. State-dependent delays would require DDE machinery.
 All tests pass. No regressions in the full suite.
 
 ```bash
-pytest tests/test_delay.py -v   # 1 passed (3.7s)
-pytest tests/ -v                # 269 passed, 16 skipped, 0 failures (115s)
+pytest tests/test_delay.py -v   # 8 passed
+pytest tests/ -v                # 291 passed, 16 skipped, 0 failures
 ```
