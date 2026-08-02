@@ -234,11 +234,83 @@ carrier shift sign must be consistent with this. Verify against the convention i
   linear filtering of those sidebands by passive photonic components, not the
   sideband generation itself. Nonlinear modulators would need a separate `@source`
   or `@component` that generates complex envelope signals.
-- **Multi-carrier simulation**: WDM with multiple carriers simultaneously present
-  requires either separate baseband envelopes per channel (no inter-channel effects)
-  or a wideband passband simulation. This spec covers single-carrier or
-  carrier-shifted simulation.
 - **Kerr / four-wave mixing**: nonlinear inter-channel effects are out of scope.
+
+---
+
+## Future work: WDM multi-channel simulation
+
+### Concept
+
+The carrier shift property (`A → A − j·2π·Δf·I`) enables multi-channel WDM
+simulation with a single fitted model. Each WDM channel gets its own complex
+envelope at a different carrier offset — the same rational model is reused for every
+channel, each correctly seeing its own slice of the spectral transfer function:
+
+```python
+carrier_offsets = jnp.array([ch1_df, ch2_df, ..., chN_df])  # relative to f_ref
+responses = jax.vmap(simulate_channel, in_axes=(0,))(carrier_offsets)
+```
+
+One fit, N channels, all differentiable. The carrier shift preserves stability and
+passivity by construction (only imaginary parts of eigenvalues change).
+
+### What WDM captures
+
+For a DWDM demux (ring-based filter or AWG), each channel's modulation sidebands
+extend into adjacent channels. This inter-channel crosstalk depends on the
+modulation bandwidth and filter roll-off shape — physics that requires the
+carrier-sideband coupling to model. With independent wavelength-domain evaluations
+(current circulax) you never see it. With carrier-shifted baseband envelopes, each
+channel's sidebands are naturally filtered by the spectral response at their
+specific carrier position.
+
+### WDM acceptance criteria
+
+- [ ] N-channel WDM through a ring-based DWDM filter: each channel's RF response
+      matches independent single-channel simulation at that carrier wavelength
+- [ ] Adjacent-channel crosstalk from modulation sidebands: channel k's sideband
+      leaking into channel k±1 is quantified from the baseband filter response
+- [ ] `jax.grad` of worst-case crosstalk w.r.t. filter design parameters (coupling
+      gap, ring radius) produces finite gradients across all N channels
+- [ ] vmap over N carrier offsets scales linearly — no per-channel refitting
+
+### WDM design optimization demo
+
+Target: 8-channel DWDM demux on 100 GHz grid with 10 Gbaud modulation per channel.
+
+Optimize ring coupling gaps and radii to minimize worst-case adjacent-channel
+crosstalk, where crosstalk is defined by the overlap of each channel's modulation
+sidebands with the neighboring filter passbands. This is a gradient-based
+optimization over filter geometry that accounts for finite modulation bandwidth —
+a design loop that currently requires N separate photonic simulations with no
+gradient information.
+
+```
+minimize   max_k  crosstalk(channel_k, channel_{k+1})
+subject to insertion_loss(channel_k) < threshold   ∀k
+variables  coupling_gaps[], ring_radii[]
+gradient   jax.grad through carrier-shifted baseband models for all channels
+```
+
+### Demonstration build-up path
+
+| Step | Device | What it proves |
+|------|--------|----------------|
+| 1 | Single ring resonator | Sideband asymmetry, carrier shift, validate against analytic Lorentzian |
+| 2 | Ring-assisted MZI | RF filter shape from optical spectral response, delay de-embedding on arms |
+| 3 | Coupled-ring filter (2-3 rings) | Multi-pole RF filter, gradient optimization of carrier + coupling gaps |
+| 4 | N-channel DWDM demux | WDM vmap, inter-channel crosstalk, multi-channel design optimization |
+
+### What WDM does NOT cover
+
+- **Nonlinear inter-channel effects**: XPM, FWM, stimulated Raman scattering require
+  the channels to interact through a shared nonlinear medium. The per-channel
+  baseband model is linear and independent — channels interact only through the
+  shared passive filter spectral response, not through nonlinear coupling.
+- **Multi-carrier co-propagation in a single waveguide**: if two carriers share the
+  same waveguide and nonlinear effects matter, a wideband passband simulation
+  (or split-step Fourier) is needed. This is outside circulax's linear passive scope.
 
 ---
 
