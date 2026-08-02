@@ -227,6 +227,109 @@ Circulax uses the RF convention (s = j·2π·f). The baseband shift direction an
 carrier shift sign must be consistent with this. Verify against the convention in
 `s_transforms.py` before implementing.
 
+---
+
+## Physics risks and mitigations
+
+### 1. AAA baseband fitting and passivity violations
+
+**Risk**: AAA does not guarantee passivity. A non-passive baseband model will cause
+the transient DAE solver to blow up exponentially. While passivity maps bijectively
+under carrier shift (so enforcement only runs once), the enforcement itself must work
+correctly without conjugate-pair symmetry — the standard Hamiltonian perturbation
+assumes conjugate pole structure.
+
+**Mitigation**: vfitax's `enforce_passivity` (RP-NNLS outer loop) operates on the
+state-space matrices (A, B, C, D), not on the pole structure directly. It should
+work for non-conjugate poles, but this must be validated explicitly:
+
+- [ ] Fit a known-passive ring resonator in baseband without conjugate pairing
+- [ ] Verify `passivity_sweep_Y` detects violations before enforcement
+- [ ] Verify `enforce_passivity` converges and produces a passive model
+- [ ] Verify passivity holds after carrier shift (Hamiltonian eigenvalue check)
+
+If the standard Hamiltonian perturbation fails for non-conjugate poles, the fallback
+is to enforce passivity via constrained optimization on the residue matrices directly
+(more expensive, but guaranteed to work regardless of pole structure).
+
+### 2. Delay extraction colliding with resonance phase
+
+**Risk**: For the combined waveguide + ring pipeline, the LS phase slope extraction
+cannot distinguish linear propagation delay from the steep dispersive phase of a ring
+resonance. If the resonance phase is included in τ, the de-embedded remainder becomes
+non-causal, and AAA fits it with RHP poles that get silently flipped — destroying the
+fit.
+
+**Mitigation**: Do not extract delay from the composite S-parameters. Instead:
+
+- **Option A — Physical delay**: Use the waveguide physical parameters directly
+  (`τ = length × n_group / c`). This is exact and immune to resonance contamination.
+  Only works when the waveguide geometry is known.
+- **Option B — Frequency-selective extraction**: Extract delay from the
+  high-frequency asymptotic phase slope (well above the resonance bandwidth), where
+  the ring's dispersive contribution is negligible. Requires the data bandwidth to
+  extend significantly above the resonance.
+- **Option C — Component-level extraction**: Extract delay from the waveguide
+  S-parameters alone (before cascading with the ring), then apply to the composite.
+  This is the cleanest separation but requires per-component S-parameter data.
+
+The `pole_flips` tripwire in `fit_with_delay` metadata catches this failure mode —
+any nonzero flip count after de-embedding a resonant device signals delay
+over-estimation.
+
+### 3. Fourier sign convention trap
+
+**Risk**: A sign error in the carrier shift direction (`A → A − j·2π·Δf·I` vs
+`A → A + j·2π·Δf·I`) maps stable decay rates into unbounded growth. The error
+is silent — no assertion catches it, the model just diverges in transient.
+
+**Mitigation**: The very first acceptance test must be an analytic Lorentzian ring
+resonator where the correct carrier shift direction is unambiguous:
+
+- [ ] Fit a Lorentzian centered at f_0 with known linewidth γ
+- [ ] Shift carrier by +Δf and −Δf
+- [ ] Verify the resonance peak moves in the correct direction in the AC sweep
+- [ ] Verify `Re(eigenvalues(A_shifted))` remains strictly negative for both shifts
+- [ ] Verify transient with shifted carrier does not diverge
+
+Additionally, document the convention mapping explicitly:
+
+```
+circulax convention:  s = j·2π·f  (RF, e^{-jωt} implied)
+optical convention:   s = −j·2π·f  (physics, e^{+jωt})
+carrier shift:        A → A − j·2π·Δf·I  (RF convention)
+```
+
+### 4. DAE conditioning near unity transmission
+
+**Risk**: The Kurokawa S-to-Y conversion `Y = (I−S)(z₀·S + z₀*·I)⁻¹` becomes
+near-singular when any S-parameter eigenvalue approaches −1 (unity transmission with
+180° phase). This produces massive Y-matrix entries that blow up the Jacobian
+condition number, causing NaN gradients in reverse-mode autodiff.
+
+**Mitigation**: Three complementary approaches:
+
+- **Delay de-embedding helps**: The periodic near-singularity of `(I+S)` for
+  transmission lines comes from the phase rotation `exp(−j2πfτ)` periodically
+  hitting −1. De-embedding removes this rotation, so `S21_deemb ≈ T_mag` (real
+  positive) and `1 + S21_deemb ≈ 2` — well-conditioned everywhere. This is already
+  implemented.
+- **Baseband helps differently**: In baseband, the S-parameters are evaluated over a
+  narrow bandwidth around the carrier. The near-singular points are at specific
+  frequencies (resonance nulls). If the baseband fit is done in Y-domain directly
+  (fit Y_b rather than converting S_b → Y_b at each frequency), the singularity is
+  avoided entirely.
+- **Regularization fallback**: Add a small imaginary part to z0 (`z0 = 50 + 1e-12j`,
+  already the circulax default for photonic circuits) to prevent exact singularity.
+  Monitor the condition number of `(z₀·S + z₀*·I)` during fitting and flag
+  frequencies where it drops below a threshold.
+
+For the gradient stability concern specifically: use `jax.checkpoint` on the S-to-Y
+conversion to limit memory growth in reverse mode, and consider `custom_jvp` with an
+analytically regularized Jacobian if NaN gradients persist at near-singular points.
+
+---
+
 ### What this does NOT cover
 
 - **Nonlinear modulation**: electro-optic modulation (Pockels effect, carrier
