@@ -157,7 +157,7 @@ Component groups: ['capacitor', 'inductor', 'resistor']
 </span><span id=__span-4-31><a href=#__codelineno-4-31 id=__codelineno-4-31 name=__codelineno-4-31></a><span class=n>log_params_init</span> <span class=o>=</span> <span class=n>jnp</span><span class=o>.</span><span class=n>log</span><span class=p>(</span><span class=n>jnp</span><span class=o>.</span><span class=n>array</span><span class=p>([</span><span class=n>L1_init</span><span class=p>,</span> <span class=n>C1_init</span><span class=p>,</span> <span class=n>L2_init</span><span class=p>]))</span>
 </span><span id=__span-4-32><a href=#__codelineno-4-32 id=__codelineno-4-32 name=__codelineno-4-32></a><span class=n>loss_init</span> <span class=o>=</span> <span class=n>loss_fn</span><span class=p>(</span><span class=n>log_params_init</span><span class=p>)</span>
 </span><span id=__span-4-33><a href=#__codelineno-4-33 id=__codelineno-4-33 name=__codelineno-4-33></a><span class=nb>print</span><span class=p>(</span><span class=sa>f</span><span class=s2>"Initial loss: </span><span class=si>{</span><span class=nb>float</span><span class=p>(</span><span class=n>loss_init</span><span class=p>)</span><span class=si>:</span><span class=s2>.6f</span><span class=si>}</span><span class=s2>"</span><span class=p>)</span>
-</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3151/3755784068.py:17: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
+</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3168/3755784068.py:17: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
   S = circuit.ac(
 
 
@@ -200,7 +200,7 @@ Initial loss: 0.057315
 </span><span id=__span-5-36><a href=#__codelineno-5-36 id=__codelineno-5-36 name=__codelineno-5-36></a>
 </span><span id=__span-5-37><a href=#__codelineno-5-37 id=__codelineno-5-37 name=__codelineno-5-37></a><span class=c1># Final recovered values</span>
 </span><span id=__span-5-38><a href=#__codelineno-5-38 id=__codelineno-5-38 name=__codelineno-5-38></a><span class=n>L1_opt</span><span class=p>,</span> <span class=n>C1_opt</span><span class=p>,</span> <span class=n>L2_opt</span> <span class=o>=</span> <span class=n>np</span><span class=o>.</span><span class=n>exp</span><span class=p>(</span><span class=n>np</span><span class=o>.</span><span class=n>array</span><span class=p>(</span><span class=n>log_params</span><span class=p>))</span>
-</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3151/3755784068.py:17: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
+</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3168/3755784068.py:17: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
   S = circuit.ac(
 
 
@@ -254,7 +254,7 @@ Step 300: loss=0.000000  L1=79.58 nH  C1=63.66 pF  L2=79.58 nH
 </span><span id=__span-6-37><a href=#__codelineno-6-37 id=__codelineno-6-37 name=__codelineno-6-37></a><span class=n>ax</span><span class=o>.</span><span class=n>legend</span><span class=p>(</span><span class=n>fontsize</span><span class=o>=</span><span class=mi>9</span><span class=p>)</span>
 </span><span id=__span-6-38><a href=#__codelineno-6-38 id=__codelineno-6-38 name=__codelineno-6-38></a><span class=n>plt</span><span class=o>.</span><span class=n>tight_layout</span><span class=p>()</span>
 </span><span id=__span-6-39><a href=#__codelineno-6-39 id=__codelineno-6-39 name=__codelineno-6-39></a><span class=n>plt</span><span class=o>.</span><span class=n>show</span><span class=p>()</span>
-</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3151/90607047.py:5: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
+</span></code></pre></div> <div class="language-text highlight"><pre><span></span><code>/tmp/ipykernel_3168/90607047.py:5: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
   S = jax.jit(lambda l1, c1, l2: circuit.ac(
 </code></pre></div> <p><a class=glightbox data-type=image data-width=100% data-height=auto href=../01_lc_filter_synthesis_files/01_lc_filter_synthesis_8_1.png data-desc-position=bottom><img alt=png src=../01_lc_filter_synthesis_files/01_lc_filter_synthesis_8_1.png></a></p> <div class="language-python highlight"><pre><span></span><code><span id=__span-7-1><a href=#__codelineno-7-1 id=__codelineno-7-1 name=__codelineno-7-1></a><span class=c1># ── Plot 2: Optimisation convergence ─────────────────────────────────────────</span>
 </span><span id=__span-7-2><a href=#__codelineno-7-2 id=__codelineno-7-2 name=__codelineno-7-2></a>
@@ -306,7 +306,7 @@ Step 300: loss=0.000000  L1=79.58 nH  C1=63.66 pF  L2=79.58 nH
   L2: 79.58 nH  vs  79.58 nH  (0.0% error)
 
 
-/tmp/ipykernel_3151/3571844417.py:11: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
+/tmp/ipykernel_3168/3571844417.py:11: DeprecationWarning: Circuit.ac() is deprecated, use Circuit.sp() instead.
   S_opt = jax.jit(lambda l1, c1, l2: circuit.ac(
 
 
