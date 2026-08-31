@@ -39,13 +39,13 @@ name = "aiohttp"
 version = "3.13.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohappyeyeballs" },
-    { name = "aiosignal" },
-    { name = "attrs" },
-    { name = "frozenlist" },
-    { name = "multidict" },
-    { name = "propcache" },
-    { name = "yarl" },
+    { name = "aiohappyeyeballs", marker = "python_full_version < '3.13'" },
+    { name = "aiosignal", marker = "python_full_version < '3.13'" },
+    { name = "attrs", marker = "python_full_version < '3.13'" },
+    { name = "frozenlist", marker = "python_full_version < '3.13'" },
+    { name = "multidict", marker = "python_full_version < '3.13'" },
+    { name = "propcache", marker = "python_full_version < '3.13'" },
+    { name = "yarl", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/77/9a/152096d4808df8e4268befa55fba462f440f14beab85e8ad9bf990516918/aiohttp-3.13.5.tar.gz", hash = "sha256:9d98cc980ecc96be6eb4c1994ce35d28d8b1f5e5208a23b421187d1209dbb7d1", size = 7858271, upload-time = "2026-03-31T22:01:03.343Z" }
 wheels = [
@@ -124,8 +124,8 @@ name = "aiosignal"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "frozenlist" },
-    { name = "typing-extensions" },
+    { name = "frozenlist", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
@@ -302,7 +302,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -457,12 +457,12 @@ dependencies = [
     { name = "diffrax" },
     { name = "equinox" },
     { name = "jax" },
-    { name = "jaxlib" },
     { name = "kfnetlist" },
     { name = "klujax" },
     { name = "lineax" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "optimistix" },
     { name = "sax" },
     { name = "typing-extensions" },
 ]
@@ -486,7 +486,7 @@ dev = [
     { name = "mkdocs-material" },
     { name = "mkdocs-matplotlib" },
     { name = "mkdocs-minify-plugin" },
-    { name = "mkdocstrings", extra = ["python"] },
+    { name = "mkdocstrings" },
     { name = "mkdocstrings-python" },
     { name = "mypy" },
     { name = "nbconvert" },
@@ -513,7 +513,7 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocs-matplotlib" },
     { name = "mkdocs-minify-plugin" },
-    { name = "mkdocstrings", extra = ["python"] },
+    { name = "mkdocstrings" },
     { name = "mkdocstrings-python" },
     { name = "nbconvert" },
     { name = "papermill" },
@@ -526,30 +526,27 @@ verilog-a = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
-    { name = "bosdi", marker = "extra == 'dev'", specifier = ">=0.1.3" },
-    { name = "bosdi", marker = "extra == 'verilog-a'", specifier = ">=0.1.3" },
+    { name = "bosdi", marker = "extra == 'dev'", specifier = ">=0.1.5,<0.2" },
+    { name = "bosdi", marker = "extra == 'verilog-a'", specifier = ">=0.1.5,<0.2" },
     { name = "diffrax", specifier = ">=0.7.0,<0.8" },
-    { name = "equinox", specifier = ">=0.11" },
+    { name = "equinox", specifier = ">=0.13,<0.15" },
     { name = "hippogriffe", marker = "extra == 'dev'", specifier = "==0.2.2" },
     { name = "hippogriffe", marker = "extra == 'docs'", specifier = "==0.2.2" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29.5" },
     { name = "ipykernel", marker = "extra == 'docs'", specifier = ">=6.29.5" },
     { name = "jax", specifier = ">=0.7.2,<0.10.0" },
-    { name = "jaxlib", specifier = ">=0.7.2,<0.10.0" },
     { name = "jupyter-dash", marker = "extra == 'dev'" },
     { name = "jupyter-dash", marker = "extra == 'docs'" },
     { name = "kaleido", marker = "extra == 'dev'", specifier = ">=1.2.0,<2" },
     { name = "kaleido", marker = "extra == 'docs'", specifier = ">=1.2.0,<2" },
-    { name = "kfnetlist", specifier = ">=0.1.4" },
-    { name = "klujax", specifier = ">=0.5.0" },
-    { name = "lineax" },
-    { name = "matplotlib" },
+    { name = "kfnetlist", specifier = ">=0.2.0,<0.3" },
+    { name = "klujax", specifier = ">=0.5.0,<0.6.0" },
+    { name = "lineax", specifier = ">=0.1.0,<0.2" },
+    { name = "matplotlib", specifier = ">=3.9,<4.0.0" },
     { name = "mkautodoc", marker = "extra == 'dev'", specifier = ">=0.2.0" },
     { name = "mkautodoc", marker = "extra == 'docs'", specifier = ">=0.2.0" },
     { name = "mkdocs", marker = "extra == 'dev'", specifier = "==1.6.1" },
-    { name = "mkdocs", marker = "extra == 'dev'", specifier = ">=1.6.1" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = "==1.6.1" },
-    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
     { name = "mkdocs-autorefs", marker = "extra == 'dev'", specifier = ">=1.3.0" },
     { name = "mkdocs-autorefs", marker = "extra == 'docs'", specifier = ">=1.3.0" },
     { name = "mkdocs-bibtex", marker = "extra == 'dev'", specifier = ">=4.4.0" },
@@ -563,23 +560,20 @@ requires-dist = [
     { name = "mkdocs-literate-nav", marker = "extra == 'dev'" },
     { name = "mkdocs-literate-nav", marker = "extra == 'docs'" },
     { name = "mkdocs-material", marker = "extra == 'dev'", specifier = "==9.6.7" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.6.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = "==9.6.7" },
-    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.6.0" },
     { name = "mkdocs-matplotlib", marker = "extra == 'dev'" },
     { name = "mkdocs-matplotlib", marker = "extra == 'docs'" },
     { name = "mkdocs-minify-plugin", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "mkdocs-minify-plugin", marker = "extra == 'docs'", specifier = ">=0.8.0" },
     { name = "mkdocstrings", marker = "extra == 'dev'", specifier = "==0.28.3" },
     { name = "mkdocstrings", marker = "extra == 'docs'", specifier = "==0.28.3" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'dev'", specifier = ">=0.27.0" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.27.0" },
     { name = "mkdocstrings-python", marker = "extra == 'dev'", specifier = "==1.16.8" },
     { name = "mkdocstrings-python", marker = "extra == 'docs'", specifier = "==1.16.8" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "nbconvert", marker = "extra == 'dev'" },
     { name = "nbconvert", marker = "extra == 'docs'" },
-    { name = "numpy" },
+    { name = "numpy", specifier = ">=2.2.0,<3.0.0" },
+    { name = "optimistix", specifier = ">=0.1.0,<0.2" },
     { name = "papermill", marker = "extra == 'dev'" },
     { name = "papermill", marker = "extra == 'docs'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
@@ -588,8 +582,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "sax", specifier = ">=0.15.15" },
-    { name = "typing-extensions", specifier = ">=4.13.2" },
+    { name = "sax", specifier = ">=0.17,<0.19" },
+    { name = "typing-extensions", specifier = ">=4.13.2,<5.0.0" },
 ]
 provides-extras = ["dev", "docs", "verilog-a"]
 
@@ -2559,7 +2553,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -3827,9 +3821,9 @@ name = "yarl"
 version = "1.23.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "idna" },
-    { name = "multidict" },
-    { name = "propcache" },
+    { name = "idna", marker = "python_full_version < '3.13'" },
+    { name = "multidict", marker = "python_full_version < '3.13'" },
+    { name = "propcache", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/23/6e/beb1beec874a72f23815c1434518bfc4ed2175065173fb138c3705f658d4/yarl-1.23.0.tar.gz", hash = "sha256:53b1ea6ca88ebd4420379c330aea57e258408dd0df9af0992e5de2078dc9f5d5", size = 194676, upload-time = "2026-03-01T22:07:53.373Z" }
 wheels = [
