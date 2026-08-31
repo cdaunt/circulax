@@ -18,27 +18,29 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "numpy",
-    # Core supports jax>=0.7.2,<0.10.0. Lower bound 0.7.2 because equinox/optimistix
-    # exclude 0.7.0/0.7.1; upper bound from sax (<0.10.0). The old <0.8 cap was a
-    # leftover from klujax 0.4.x (which used jax.pmap); klujax 0.5.0 dropped pmap.
+    "numpy>=2.2.0,<3.0.0",
+    # Lower bound 0.7.2: equinox/optimistix exclude 0.7.0/0.7.1.
+    # Upper bound <0.10.0: from sax. The old <0.8 cap was a leftover from
+    # klujax 0.4.x (which used jax.pmap); klujax 0.5.0 dropped pmap.
+    # Note: the verilog-a extra (bosdi) further constrains jax to <0.8.
     "jax>=0.7.2,<0.10.0",
-    "jaxlib>=0.7.2,<0.10.0",
     "diffrax>=0.7.0,<0.8",
-    "sax>=0.15.15",
-    "matplotlib",
-    "typing-extensions>=4.13.2",
-    "lineax",
-    "equinox>=0.11",
-    "klujax>=0.5.0",
-    "kfnetlist>=0.1.4"]
+    "sax>=0.17,<0.19",
+    "matplotlib>=3.9,<4.0.0",
+    "typing-extensions>=4.13.2,<5.0.0",
+    "lineax>=0.1.0,<0.2",
+    "equinox>=0.13,<0.15",
+    "optimistix>=0.1.0,<0.2",
+    "klujax>=0.5.0,<0.6.0",
+    "kfnetlist>=0.2.0,<0.3",
+]
 
 [project.optional-dependencies]
 # bosdi caps jax<0.8, so the verilog-a extra constrains the core down from
 # jax<0.10.0 to jax<0.8 (i.e. jax 0.7.2). The dev/default env pulls verilog-a,
 # so it stays on jax 0.7.2 until bosdi widens its compatibility.
 verilog-a = [
-    "bosdi>=0.1.3",
+    "bosdi>=0.1.5,<0.2",
 ]
 docs = [
     "ipykernel>=6.29.5",
@@ -57,9 +59,6 @@ docs = [
     "mkautodoc>=0.2.0",
     "mkdocs-autorefs>=1.3.0",
     "mkdocs-bibtex>=4.4.0",
-    "mkdocs-material>=9.6.0",
-    "mkdocs>=1.6.1",
-    "mkdocstrings[python]>=0.27.0",
     "mkdocs-glightbox>=0.4.0",
     "mkdocs-minify-plugin>=0.8.0",
     "jupyter-dash",
