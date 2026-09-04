@@ -41,6 +41,9 @@ compile_netlist(net_dict, models) → [ComponentGroup, ...]
 | Spec | Status | What it covers |
 |------|--------|----------------|
 | [hierarchy.md](hierarchy.md) | **Done** | Hierarchical subcircuit composition — `RecursiveNetlist` support, netlist-level flattening, `Circuit`-as-subcircuit (V1, PR #39) |
+| [time-delay.md](time-delay.md) | **Done** | Time delay for AC/HB and transient — `delay_line_fdomain` + `OpticalDelayLine` with DDE history buffer (branch `feat-time-delay`) |
+| [vector-fitting.md](vector-fitting.md) | **Done** | S-parameter vector fitting with delay de-embedding — `rational_component`, `rational_fdomain_component`, `rational_delay_component` (branch `feat-time-delay`) |
+| [baseband-envelope.md](baseband-envelope.md) | **Planned** | Baseband envelope simulation — carrier-relative spectral effects, sideband asymmetry, CVF/AAA baseband fitting, carrier shift as differentiable parameter |
 | Physics — `circulax/components/` | **Planned** | <!-- FILL --> |
 | Topology — `circulax/compiler.py`, `circulax/netlist.py` | **Planned** | <!-- FILL --> |
 | Analysis — `circulax/solvers/` | **Planned** | <!-- FILL --> |

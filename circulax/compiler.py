@@ -72,6 +72,13 @@ class ComponentGroup(eqx.Module):
     combined_func: Any = eqx.field(static=True, default=None)
     holomorphic: bool = eqx.field(static=True, default=False)
 
+    # Fixed time-delay support (see circulax.solvers.assembly). ``has_delay``
+    # gates the delay-history lookup so undelayed groups pay no cost;
+    # ``tau_func(params) -> tau`` computes a single instance's delay, vmapped
+    # over the group's batched params by the assembly layer.
+    has_delay: bool = eqx.field(static=True, default=False)
+    tau_func: Any = eqx.field(static=True, default=None)
+
 
 def get_model_width(func: callable) -> int:
     """Determines the size of the 'vars' vector expected by the model."""
@@ -366,6 +373,8 @@ def compile_netlist(  # noqa: C901, PLR0912, PLR0915
             amplitude_param=getattr(comp_cls, "amplitude_param", ""),
             combined_func=_combined_func,
             holomorphic=getattr(comp_cls, "_holomorphic", True),
+            has_delay=getattr(comp_cls, "_has_delay", False),
+            tau_func=getattr(comp_cls, "tau_of", None) if getattr(comp_cls, "_has_delay", False) else None,
         )
 
     # --- Process OSDI buckets (requires circulax[verilog-a] / bosdi) ---

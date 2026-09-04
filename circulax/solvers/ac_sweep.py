@@ -46,7 +46,11 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from circulax.solvers.assembly import assemble_gc_complex, assemble_gc_complex_2n, assemble_gc_real
+from circulax.solvers.assembly import (
+    assemble_gc_complex,
+    assemble_gc_complex_2n,
+    assemble_gc_real,
+)
 from circulax.solvers.linear import GROUND_STIFFNESS, _build_index_arrays
 
 
